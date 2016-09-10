@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"encoding/json"
 	"os/signal"
 	"syscall"
 	"time"
@@ -133,9 +134,12 @@ Rsession.Use(rethinkdbname)
 		for props.LastIrreversibleBlockNum-U > 0 {
 			block, err := client.Database.GetBlockRaw(U)
 			lastblock := props.LastIrreversibleBlockNum
+			var f interface{}
+			json.Unmarshal(*block, &f)
 			fmt.Println(U)
+			fmt.Println(f)
 			r.Table("blocks").
-			Insert(block).
+			Insert(f).
 			Exec(Rsession)
 			if err != nil {
 				return err
