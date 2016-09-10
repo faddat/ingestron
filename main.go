@@ -19,8 +19,6 @@ func main() {
 	}
 }
 
-
-
 // Set the settings for the DB
 func run() (err error) {
     Rsession, err := r.Connect(r.ConnectOpts{
@@ -31,7 +29,7 @@ func run() (err error) {
     }
 
 // Create a table in the DB
-var rethinkdbname string = "steemit1"
+var rethinkdbname string = "steemit2"
 _, err = r.DBCreate(rethinkdbname).RunWrite(Rsession)
 Rsession.Use(rethinkdbname)
 	if err != nil {
@@ -66,8 +64,10 @@ Rsession.Use(rethinkdbname)
 			err = nil
 		}
 	}()
-	Lastblock := 1
-	u := uint32(Lastblock)
+	// This allows you to tell the app which block to start on.
+	// TODO: Make all of the vars into a config file and package the binaries
+	Startblock := 1
+	U := uint32(Startblock)
 	// Start the connection monitor.
 	monitorChan := make(chan interface{}, 1)
 	if reconnect {
@@ -112,11 +112,16 @@ Rsession.Use(rethinkdbname)
 		client.Close()
 	}()
 
-
+	// Get config.
+	log.Println("---> GetConfig()")
+	config, err := client.Database.GetConfig()
+	if err != nil {
+		return err
+	}
 
 
 	// Keep processing incoming blocks forever.
-	log.Printf("---> Entering the block processing loop (last block = %v)\n")
+	fmt.Println("---> Entering the block processing loop")
 	for {
 		// Get current properties.
 		props, err := client.Database.GetDynamicGlobalProperties()
@@ -125,9 +130,10 @@ Rsession.Use(rethinkdbname)
 		}
 
 		// Process new blocks.
-		for props.LastIrreversibleBlockNum-u > 0 {
-			block, err := client.Database.GetBlock(u)
-			fmt.Println(block)
+		for props.LastIrreversibleBlockNum-U > 0 {
+			block, err := client.Database.GetBlockRaw(U)
+			lastblock := props.LastIrreversibleBlockNum
+			fmt.Println(U)
 			r.Table("blocks").
 			Insert(block).
 			Exec(Rsession)
@@ -136,8 +142,11 @@ Rsession.Use(rethinkdbname)
 			}
 
 			// Process the transactions.
+			if U != lastblock {
+				U++
+			}
 
-			u++
+			time.Sleep(time.Duration(config.SteemitBlockInterval) * time.Second)
 }
 		}
 
