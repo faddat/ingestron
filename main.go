@@ -30,7 +30,7 @@ func run() (err error) {
     }
 
 // Create a table in the DB
-var rethinkdbname string = "steemit2"
+var rethinkdbname string = "steemit"
 _, err = r.DBCreate(rethinkdbname).RunWrite(Rsession)
 Rsession.Use(rethinkdbname)
 	if err != nil {
