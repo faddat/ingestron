@@ -1,17 +1,19 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
-	"encoding/json"
 	"os/signal"
 	"syscall"
 	"time"
-        r "gopkg.in/dancannon/gorethink.v2"
+
 	"github.com/go-steem/rpc"
 	"github.com/go-steem/rpc/transports/websocket"
+	"github.com/nytlabs/gojsonexplode"
+	r "gopkg.in/dancannon/gorethink.v2"
 )
 
 func main() {
@@ -22,27 +24,32 @@ func main() {
 
 // Set the settings for the DB
 func run() (err error) {
-    Rsession, err := r.Connect(r.ConnectOpts{
-    Addresses: []string{"138.201.198.167:28015","138.201.198.169:28015","138.201.198.173:28015","138.201.198.175:28015"},
-    })
-    if err != nil {
-        log.Fatalln(err.Error())
-    }
+	Rsession, err := r.Connect(r.ConnectOpts{
+		Addresses: []string{"138.201.198.167:28015", "138.201.198.169:28015", "138.201.198.173:28015", "138.201.198.175:28015"},
+	})
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
 
-// Create a table in the DB
-var rethinkdbname string = "steemit"
-_, err = r.DBCreate(rethinkdbname).RunWrite(Rsession)
-Rsession.Use(rethinkdbname)
+	// Create a table in the DB
+	var rethinkdbname string = "steemit"
+	_, err = r.DBCreate(rethinkdbname).RunWrite(Rsession)
+	Rsession.Use(rethinkdbname)
 	if err != nil {
 		fmt.Println("rethindb DB already made")
-}
-	_, err = r.DB(rethinkdbname).TableCreate("blocks").RunWrite(Rsession)
+	}
 
+	_, err = r.DB(rethinkdbname).TableCreate("nestedblocks").RunWrite(Rsession)
 	if err != nil {
-		fmt.Println("Probably already made a table for blocks")
+		fmt.Println("Probably already made a table for nested blocks")
 
 	}
 
+	_, err = r.DB(rethinkdbname).TableCreate("flatblocks").RunWrite(Rsession)
+	if err != nil {
+		fmt.Println("Probably already made a table for flat blocks")
+
+	}
 
 	// Process flags.
 	flagAddress := flag.String("rpc_endpoint", "ws://138.201.198.167:8090", "steemd RPC endpoint address")
@@ -120,7 +127,6 @@ Rsession.Use(rethinkdbname)
 		return err
 	}
 
-
 	// Keep processing incoming blocks forever.
 	fmt.Println("---> Entering the block processing loop")
 	for {
@@ -131,16 +137,20 @@ Rsession.Use(rethinkdbname)
 		}
 
 		// Process new blocks.
+		// This now explodes the JSON for each block.  This will flatten the nested arrays in the JSON.  Unsure if this will yeild the right result but it will be better.
 		for props.LastIrreversibleBlockNum-U > 0 {
-			block, err := client.Database.GetBlockRaw(U)
+			block, err := client.Database.GetBlock(U)
 			lastblock := props.LastIrreversibleBlockNum
-			var f interface{}
-			json.Unmarshal(*block, &f)
+			thestring, err := json.Marshal(block)
+			s := string(thestring)
+			out, err := gojsonexplode.Explodejsonstr(s, ".")
 			fmt.Println(U)
-			fmt.Println(f)
-			r.Table("blocks").
-			Insert(f).
-			Exec(Rsession)
+			// uncomment the line below for debugging purposes to see exactly what is being written
+			fmt.Println(out)
+			fmt.Println(thestring)
+			r.Table("flatblocks").
+				Insert(out).
+				Exec(Rsession)
 			if err != nil {
 				return err
 			}
@@ -151,7 +161,7 @@ Rsession.Use(rethinkdbname)
 			}
 
 			time.Sleep(time.Duration(config.SteemitBlockInterval) * time.Second)
-}
 		}
-
 	}
+
+}
