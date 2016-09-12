@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/go-steem/rpc"
 	"github.com/go-steem/rpc/transports/websocket"
-	"github.com/nytlabs/gojsonexplode"
 	r "gopkg.in/dancannon/gorethink.v2"
 )
 
@@ -39,7 +37,7 @@ func run() (err error) {
 		fmt.Println("rethindb DB already made")
 	}
 
-	_, err = r.DB(rethinkdbname).TableCreate("nestedblocks").RunWrite(Rsession)
+	_, err = r.DB(rethinkdbname).TableCreate("transactions").RunWrite(Rsession)
 	if err != nil {
 		fmt.Println("Probably already made a table for nested blocks")
 
@@ -120,13 +118,6 @@ func run() (err error) {
 		client.Close()
 	}()
 
-	// Get config.
-	log.Println("---> GetConfig()")
-	config, err := client.Database.GetConfig()
-	if err != nil {
-		return err
-	}
-
 	// Keep processing incoming blocks forever.
 	fmt.Println("---> Entering the block processing loop")
 	for {
@@ -141,15 +132,14 @@ func run() (err error) {
 		for props.LastIrreversibleBlockNum-U > 0 {
 			block, err := client.Database.GetBlock(U)
 			lastblock := props.LastIrreversibleBlockNum
-			thestring, err := json.Marshal(block)
-			s := string(thestring)
-			out, err := gojsonexplode.Explodejsonstr(s, ".")
 			fmt.Println(U)
+			fmt.Println(block)
 			// uncomment the line below for debugging purposes to see exactly what is being written
-			fmt.Println(out)
-			fmt.Println(thestring)
+			r.Table("transactions").
+				Insert(block.Transactions).
+				Exec(Rsession)
 			r.Table("flatblocks").
-				Insert(out).
+				Insert(block).
 				Exec(Rsession)
 			if err != nil {
 				return err
@@ -160,8 +150,7 @@ func run() (err error) {
 				U++
 			}
 
-			time.Sleep(time.Duration(config.SteemitBlockInterval) * time.Second)
 		}
-	}
 
+	}
 }
