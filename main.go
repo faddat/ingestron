@@ -1,17 +1,19 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"net/rpc"
 	"os"
-	"encoding/json"
 	"os/signal"
 	"syscall"
 	"time"
-        r "gopkg.in/dancannon/gorethink.v2"
-	"github.com/go-steem/rpc"
+  "database/sql"
 	"github.com/go-steem/rpc/transports/websocket"
+	_ "github.com/herenow/go-crate"
+	"github.com/nytlabs/gojsonexplode"
 )
 
 func main() {
@@ -21,28 +23,22 @@ func main() {
 }
 
 // Set the settings for the DB
-func run() (err error) {
-    Rsession, err := r.Connect(r.ConnectOpts{
-    Addresses: []string{"138.201.198.167:28015","138.201.198.169:28015","138.201.198.173:28015","138.201.198.175:28015"},
-    })
-    if err != nil {
-        log.Fatalln(err.Error())
-    }
+db, err := sql.Open("crate", "http://192.168.194.98:4200/")
 
-// Create a table in the DB
-var rethinkdbname string = "steemit"
-_, err = r.DBCreate(rethinkdbname).RunWrite(Rsession)
-Rsession.Use(rethinkdbname)
+
+	// Create a table in the DB
+	var dbname string = "steemit"
+	_, err = DBCreate(rethinkdbname).RunWrite(Rsession)
+	Rsession.Use(rethinkdbname)
 	if err != nil {
-		fmt.Println("rethindb DB already made")
-}
+		fmt.Println("rethinkdb DB already made")
+	}
 	_, err = r.DB(rethinkdbname).TableCreate("blocks").RunWrite(Rsession)
 
 	if err != nil {
 		fmt.Println("Probably already made a table for blocks")
 
 	}
-
 
 	// Process flags.
 	flagAddress := flag.String("rpc_endpoint", "ws://138.201.198.167:8090", "steemd RPC endpoint address")
@@ -120,7 +116,6 @@ Rsession.Use(rethinkdbname)
 		return err
 	}
 
-
 	// Keep processing incoming blocks forever.
 	fmt.Println("---> Entering the block processing loop")
 	for {
@@ -136,11 +131,10 @@ Rsession.Use(rethinkdbname)
 			lastblock := props.LastIrreversibleBlockNum
 			var f interface{}
 			json.Unmarshal(*block, &f)
-			fmt.Println(U)
-			fmt.Println(f)
+			fmt.Println(U)(f)
 			r.Table("blocks").
-			Insert(f).
-			Exec(Rsession)
+				Insert(f).
+				Exec(Rsession)
 			if err != nil {
 				return err
 			}
@@ -151,7 +145,7 @@ Rsession.Use(rethinkdbname)
 			}
 
 			time.Sleep(time.Duration(config.SteemitBlockInterval) * time.Second)
-}
 		}
-
 	}
+
+}
