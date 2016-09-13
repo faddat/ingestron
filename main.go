@@ -1,14 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
+	"github.com/astaxie/flatmap"
 	"github.com/go-steem/rpc"
 	"github.com/go-steem/rpc/transports/websocket"
 	r "gopkg.in/dancannon/gorethink.v2"
@@ -30,7 +33,7 @@ func run() (err error) {
 	}
 
 	// Create a table in the DB
-	var rethinkdbname string = "steemit"
+	var rethinkdbname string = "steemit75"
 	_, err = r.DBCreate(rethinkdbname).RunWrite(Rsession)
 	Rsession.Use(rethinkdbname)
 	if err != nil {
@@ -39,7 +42,7 @@ func run() (err error) {
 
 	_, err = r.DB(rethinkdbname).TableCreate("transactions").RunWrite(Rsession)
 	if err != nil {
-		fmt.Println("Probably already made a table for nested blocks")
+		fmt.Println("Probably already made a table for transactions")
 
 	}
 
@@ -49,8 +52,14 @@ func run() (err error) {
 
 	}
 
+	_, err = r.DB(rethinkdbname).TableCreate("operations").RunWrite(Rsession)
+	if err != nil {
+		fmt.Println("Probably already made a table for flat blocks")
+
+	}
+
 	// Process flags.
-	flagAddress := flag.String("rpc_endpoint", "ws://138.201.198.167:8090", "steemd RPC endpoint address")
+	flagAddress := flag.String("rpc_endpoint", "ws://138.201.198.169:8090", "steemd RPC endpoint address")
 	flagReconnect := flag.Bool("reconnect", false, "enable auto-reconnect mode")
 	flag.Parse()
 
@@ -131,7 +140,25 @@ func run() (err error) {
 		// This now explodes the JSON for each block.  This will flatten the nested arrays in the JSON.  Unsure if this will yeild the right result but it will be better.
 		for props.LastIrreversibleBlockNum-U > 0 {
 			block, err := client.Database.GetBlock(U)
+			blockraw, err := client.Database.GetBlockRaw(U)
 			lastblock := props.LastIrreversibleBlockNum
+			var data = blockraw
+			var mp map[string]interface{}
+			if err := json.Unmarshal([]byte(*data), &mp); err != nil {
+				log.Fatal(err)
+			}
+			fm, err := flatmap.Flatten(mp)
+			if err != nil {
+				log.Fatal(err)
+			}
+			var ks []string
+			for k := range fm {
+				ks = append(ks, k)
+			}
+			sort.Strings(ks)
+			for _, k := range ks {
+				fmt.Println(k, ":", fm[k])
+			}
 			fmt.Println(U)
 			fmt.Println(block)
 			// uncomment the line below for debugging purposes to see exactly what is being written
@@ -139,7 +166,10 @@ func run() (err error) {
 				Insert(block.Transactions).
 				Exec(Rsession)
 			r.Table("flatblocks").
-				Insert(block).
+				Insert(fm).
+				Exec(Rsession)
+			r.Table("nestedblocks").
+				Insert(blockraw).
 				Exec(Rsession)
 			if err != nil {
 				return err
