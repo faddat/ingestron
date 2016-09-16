@@ -9,7 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-  "gopkg.in/go-playground/pool.v3"
+	"runtime"
+	"github.com/jeffail/tunny"
 	"github.com/astaxie/flatmap"
 	"github.com/go-steem/rpc"
 	"github.com/go-steem/rpc/transports/websocket"
@@ -18,7 +19,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatalln("Error:", err)
+		fmt.Println("Error:", err)
 	}
 }
 
@@ -58,7 +59,7 @@ func run() (err error) {
 	}
 
 	// Process flags.
-	flagAddress := flag.String("rpc_endpoint", "ws://138.201.198.169:8090", "steemd RPC endpoint address")
+	flagAddress := flag.String("rpc_endpoint", "ws://192.168.194.91:8090", "steemd RPC endpoint address")
 	flagReconnect := flag.Bool("reconnect", true, "enable auto-reconnect mode")
 	flag.Parse()
 
@@ -125,53 +126,41 @@ func run() (err error) {
 		client.Close()
 	}()
 
-	// Keep processing incoming blocks forever.
-	fmt.Println("---> Entering the block processing loop")
-	for {
-		props, err := client.Database.GetDynamicGlobalProperties()
-		lb := int(props.LastIrreversibleBlockNum)
-		p := pool.NewLimited(100)
-		defer p.Close()
-		batch := p.Batch()
-		go func() {
-			for U := 1; lb < U; U++ {
-				batch.Queue(readsandWrites(U, Rsession, client))
-				fmt.Println(U)
-			}
-			batch.QueueComplete()
-		}()
-		if err != nil {
-			return err
-		}
-	}
+numCPUs := runtime.NumCPU()
+pool, _ := tunny.CreatePoolGeneric(numCPUs).Open()
+prop := client.Database.GetDynamicGlobalProperties()
+lb := prop.LastIrreversibleBlockNum
+queue := make(chan int, 3)
+for U := 1; U < lb; U++ {
+queue <- U
 }
+// This is where the work actually happens
+	for elem U < lb := range queue {
+		pool.SendWork(func(queue chan, lb int, Rsession *r.Session, client *rpc.Client))
+	blocknum := uint32(queue)
+	 // blockchain reads
+	 block, err := client.Database.GetBlock(blocknum)
+	 blockraw, err := client.Database.GetBlockRaw(blocknum)
+	 var transdata = blockraw
+	 var mp map[string]interface{}
+	 if err := json.Unmarshal([]byte(*transdata), &mp); err != nil {
+		 log.Fatal(err)
+	 }
+	 Fm, err := flatmap.Flatten(mp)
+	 // Rethinkdb writes
+	 r.Table("transactions").
+		 Insert(block.Transactions).
+		 Exec(Rsession)
+	 r.Table("flatblocks").
+		 Insert(Fm).
+		 Exec(Rsession)
+	 r.Table("nestedblocks").
+		 Insert(block).
+		 Exec(Rsession)
+		 blockChannel <- blocknum
+			if outputStr, ok := data.(string); ok {
+					return ("custom job done: " + outputStr)
+	 }
 
-func readsandWrites(U int, Rsession *r.Session, client *rpc.Client) pool.WorkFunc {
-	return func(wu pool.WorkUnit) (interface{}, error) {
-		u := uint32(U)
-		// blockchain reads
-		block, err := client.Database.GetBlock(u)
-		blockraw, err := client.Database.GetBlockRaw(u)
-		var data = blockraw
-		var mp map[string]interface{}
-		if err := json.Unmarshal([]byte(*data), &mp); err != nil {
-			log.Fatal(err)
-		}
-		Fm, err := flatmap.Flatten(mp)
-		// Rethinkdb writes
-		r.Table("transactions").
-			Insert(block.Transactions).
-			Exec(Rsession)
-		r.Table("flatblocks").
-			Insert(Fm).
-			Exec(Rsession)
-		r.Table("nestedblocks").
-			Insert(block).
-			Exec(Rsession)
-			fmt.Println(u)
-			if err != nil {
-				log.Fatal(err)
-			}
-			return true, nil
-		}
-}
+    }
+	}
