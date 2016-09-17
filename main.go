@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -10,8 +9,8 @@ import (
 	"syscall"
 	"time"
 	"runtime"
+
 	"github.com/jeffail/tunny"
-	"github.com/astaxie/flatmap"
 	"github.com/go-steem/rpc"
 	"github.com/go-steem/rpc/transports/websocket"
 	r "gopkg.in/dancannon/gorethink.v2"
@@ -127,40 +126,32 @@ func run() (err error) {
 	}()
 
 numCPUs := runtime.NumCPU()
-pool, _ := tunny.CreatePoolGeneric(numCPUs).Open()
-prop := client.Database.GetDynamicGlobalProperties()
-lb := prop.LastIrreversibleBlockNum
-queue := make(chan int, 3)
-for U := 1; U < lb; U++ {
-queue <- U
+pool, err := tunny.CreatePoolGeneric(numCPUs).Open()
+if err != nil {
+	return err
 }
+prop, err := client.Database.GetDynamicGlobalProperties()
+if err != nil {
+	return err
+}
+lb := uint32(prop.LastIrreversibleBlockNum)
+U := uint32(1)
+
 // This is where the work actually happens
-	for elem U < lb := range queue {
-		pool.SendWork(func(queue chan, lb int, Rsession *r.Session, client *rpc.Client))
-	blocknum := uint32(queue)
+		for U <= lb {
+		pool.SendWork(func(U uint32, Rsession *r.Session, client *rpc.Client) error {
 	 // blockchain reads
-	 block, err := client.Database.GetBlock(blocknum)
-	 blockraw, err := client.Database.GetBlockRaw(blocknum)
-	 var transdata = blockraw
-	 var mp map[string]interface{}
-	 if err := json.Unmarshal([]byte(*transdata), &mp); err != nil {
-		 log.Fatal(err)
-	 }
-	 Fm, err := flatmap.Flatten(mp)
+	 block, err := client.Database.GetBlock(U)
 	 // Rethinkdb writes
 	 r.Table("transactions").
 		 Insert(block.Transactions).
 		 Exec(Rsession)
-	 r.Table("flatblocks").
-		 Insert(Fm).
-		 Exec(Rsession)
 	 r.Table("nestedblocks").
 		 Insert(block).
 		 Exec(Rsession)
-		 blockChannel <- blocknum
-			if outputStr, ok := data.(string); ok {
-					return ("custom job done: " + outputStr)
+		 U++
+		 	return err
+})
 	 }
-
-    }
-	}
+	 return err
+	 }
