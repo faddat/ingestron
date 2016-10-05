@@ -10,15 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	
 	"github.com/go-steem/rpc"
 	"github.com/go-steem/rpc/transports/websocket"
 	r "gopkg.in/dancannon/gorethink.v2"
 )
-
-type Connecty struct {
-	session *r.Session
-	client  *rpc.Client
-}
 
 const (
 	numberGoroutines = 8
@@ -27,64 +23,16 @@ const (
 var wg sync.WaitGroup
 
 func main() {
-	if err := run(); err != nil {
-		log.Fatalln("Error:", err)
-	}
-}
-
-// Set the settings for the DB
-func run() (err error) {
-
-	connected := Connect()
-	// Keep processing incoming blocks forever.
-	fmt.Println("---> Entering the block processing loop")
-	for {
-		// Get current properties.
-		props, err := connected.client.Database.GetDynamicGlobalProperties()
-		taskLoad := props.LastIrreversibleBlockNum
-		tasks := make(chan uint32, 1000)
-		if err != nil {
-			return err
-		}
-		wg.Add(numberGoroutines)
-		for gr := 1; gr <= numberGoroutines; gr++ {
-			go Worker(tasks, gr, connected)
-		}
-
-		for U := uint32(1); U <= taskLoad; U++ {
-			tasks <- U
-		}
-		return err
-	}
-}
-
-func Worker(tasks chan uint32, gr int, connected Connecty) {
-	defer wg.Done()
-	task, ok := <-tasks
-	if !ok {
-		fmt.Printf("worker: %d : Shutting Down\n", Worker)
-	}
-	fmt.Println(task)
-	fmt.Println(gr)
-	block, err := connected.client.Database.GetBlock(task)
-	r.Table("transactions").
-		Insert(block.Transactions).
-		Exec(connected.session)
-	fmt.Println(err)
-
-}
-
-func Connect() Connecty {
 
 	Rsession, err := r.Connect(r.ConnectOpts{
-		Addresses: []string{"138.201.198.167:28015", "138.201.198.169:28015", "138.201.198.173:28015", "138.201.198.175:28015"},
+		Addresses: []string{"138.201.198.167:28015", "138.201.198.169:28015", "138.201.198.173:28015"},
 	})
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
 
 	// Create a table in the DB
-	var rethinkdbname string = "steemit75"
+	var rethinkdbname string = "steemit69"
 	_, err = r.DBCreate(rethinkdbname).RunWrite(Rsession)
 	Rsession.Use(rethinkdbname)
 	if err != nil {
@@ -111,7 +59,7 @@ func Connect() Connecty {
 
 	// Process flags.
 	flagAddress := flag.String("rpc_endpoint", "ws://138.201.198.169:8090", "steemd RPC endpoint address")
-	flagReconnect := flag.Bool("reconnect", false, "enable auto-reconnect mode")
+	flagReconnect := flag.Bool("reconnect", true, "enable auto-reconnect mode")
 	flag.Parse()
 
 	var (
@@ -175,8 +123,51 @@ func Connect() Connecty {
 		interrupted = true
 		client.Close()
 	}()
-	var connected Connecty
-	connected.client = client
-	connected.session = Rsession
-	return connected
+
+	if err := run(client, Rsession); err != nil {
+		log.Fatalln("Error:", err)
+	}
+}
+
+// Set the settings for the DB
+func run(client *rpc.Client, Rsession *r.Session) (err error) {
+
+	// Keep processing incoming blocks forever.
+	fmt.Println("---> Entering the block processing loop")
+	for {
+		// Get current properties.
+		tasks := make(chan uint32, 1000)
+
+		if err != nil {
+			return err
+		}
+		wg.Add(numberGoroutines)
+		for gr := 1; gr <= numberGoroutines; gr++ {
+			go Worker(tasks, gr, client, Rsession)
+		}
+
+		for U := uint32(1); U <= uint32(5000000); U++ {
+			tasks <- U
+		}
+
+		return err
+	}
+}
+
+func Worker(tasks chan uint32, gr int, client *rpc.Client, Rsession *r.Session) {
+	defer wg.Done()
+	for {
+
+		task, ok := <-tasks
+		if !ok {
+			fmt.Printf("worker: %d : Shutting Down\n", Worker)
+		}
+		fmt.Println(task)
+		fmt.Println(gr)
+		block, err := client.Database.GetBlock(task)
+		r.Table("transactions").
+			Insert(block.Transactions).
+			Exec(Rsession)
+		log.Fatal(err)
+	}
 }
