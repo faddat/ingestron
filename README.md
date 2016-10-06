@@ -1,6 +1,8 @@
 # Ingestron Steem -> Rethinkdb Ingestor in Golang
 
-BETA!  You can build some of the earlier commits.  I pushed the current master (October 6 2016) to demonstrate some code changes.  I am aware it does not compile.  
+#### BETA!  
+
+You can build some of the earlier commits.  I pushed the current master (October 6 2016) to demonstrate some code changes.  I am aware it does not compile.  
 
 Sipmly put, Ingestron eats blocks and shits rows.
 
