@@ -1,3 +1,14 @@
+/*     INGESTRON
+Ingestron is a golang-based ingestor for graphene-based blockchains.  Its development was funded by Justin Fondreist of
+BeyondBitcoin to advance the ecosystems of Bitshares, STEEM, Golos, and PeerPlays.  If you wish to see features added to
+INGESTRON, please contact Jacob Gadikian on Google Hangouts at faddat@gmail.com.  To put it simply, development is funded
+in cash-USD, and cash-USD causes features to happen.  Jacob is happy to accept cryptocurrencies and make payment arrangements.
+You can find a logic map for the block processing that INGESTRON does at:
+
+
+
+ */
+
 package main
 
 import (
