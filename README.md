@@ -1,8 +1,9 @@
-# Steem -> Rethinkdb Ingestor in Golang
+# Ingestron Steem -> Rethinkdb Ingestor in Golang
 
-Ingestron:  It eats blocks and shits rows.
+BETA!  You can build some of the earlier commits.  I pushed the current master (October 6 2016) to demonstrate some code changes.  I am aware it does not compile.  
 
-     INGESTRON
+Sipmly put, Ingestron eats blocks and shits rows.
+
 Ingestron is a golang-based content and informatics ingestor for graphene-based blockchains.  
 
 Its development is funded by Justin Fondreist of BeyondBitcoin to advance the ecosystems of Bitshares, STEEM, Golos, and PeerPlays.  If you wish to see features added to
