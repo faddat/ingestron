@@ -1,0 +1,18 @@
+graph TD;
+    B{Bitshares Daemon}-- feeds data to -->id1;
+    A{Steem Daemon}-- feeds data to -->id1;
+id1((Ingestron.));
+    C{Golos Daemon}-- feeds data to -->id1;
+    D{PeerPlays Daemon}-- feeds data to -->id1;
+id1-->Cross-market-Trading;
+id1-->so-called-sharebot;
+id1-->beyondbitcoin.com;
+id1-->analytics-for-blockchain-users;
+id1-->upvote-automation;
+upvote-automation-->A;
+upvote-automation-->B;
+id1-->swagger-api;
+swagger-api-->A;
+swagger-api-->B;
+swagger-api-->C;
+swagger-api-->D;

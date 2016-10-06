@@ -9,7 +9,24 @@ https://docs.google.com/drawings/d/1iV7vcO0CZCYbiRWAjKN41axR6ZaeZ-OFD9YA39jFdoI/
 
 Ingestron will serve an integrated status-panel WEB UI at port 6969, because why not?  Status information on all blockchains
 monitored by INGESTRON is written to RethinkDB with each block.  We'll be working to integrate tightly with the blockchain
-itself in coming releases, hopefully going as far as using cgo for actual integration.  
+itself in coming releases, hopefully going as far as using cgo for actual integration.
+
+INGESTRON is a little like an old-school video game:
+
+#######MINIMUM SYSTEM REQUIREMENTS#########
+Eight-Threaded CPU (ex: Intel i7 or Xeon)
+64 GB RAM
+35MBPS Low-Latency Internet Connection
+100 GB Free Disk Space
+
+#######RECOMMENDED SYSTEM REQUIREMENTS#######(Our Development Setup)
+12-Thread CPU (Xeon e5 Class)
+128 GB RAM
+1GBPS Low-Latency Internet Connection
+SSD RAID or Optane Storage
+
+If you run it on less and contact us for support, we will laugh at you.  Actually if you contact us for support without
+cash in hand or code in brain, we'll probably laugh at you, too.  But maybe not.  We're pretty nice guys.
 
  */
 
