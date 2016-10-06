@@ -15,7 +15,7 @@ You can find a WIP logic map for the block processing that INGESTRON does at:
 
 https://docs.google.com/drawings/d/1iV7vcO0CZCYbiRWAjKN41axR6ZaeZ-OFD9YA39jFdoI/edit?usp=sharing
 
-Ingestron will serve an integrated status-panel WEB UI at port 6969, because why not?  Status information on all blockchains
+Ingestron will serve an integrated status-panel WEB UI at port 6969, because why not?  Status information on all daemons
 monitored by INGESTRON is written to RethinkDB with each block.  We'll be working to integrate tightly with the blockchain
 itself in coming releases, hopefully going as far as using cgo for actual integration.
 

@@ -30,7 +30,7 @@ var wg sync.WaitGroup
 func main() {
 
 	Rsession, err := r.Connect(r.ConnectOpts{
-		Addresses: []string{"138.201.198.167:28015", "138.201.198.169:28015", "138.201.198.173:28015"},
+		Address: []string{"127.0.0.1:28015"},
 	})
 	if err != nil {
 		log.Fatalln(err.Error())
@@ -52,7 +52,7 @@ func main() {
 
 
 	// Process flags.
-	flagAddress := flag.String("rpc_endpoint", "wss://steem.yt", "steemd RPC endpoint address")
+	flagAddress := flag.String("rpc_endpoint", "ws://127.0.0.1:8090", "steemd RPC endpoint address")
 	flagReconnect := flag.Bool("reconnect", true, "enable auto-reconnect mode")
 	flag.Parse()
 
