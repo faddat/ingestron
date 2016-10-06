@@ -10,10 +10,14 @@ import (
 	"syscall"
 	"time"
 
-	
+
 	"github.com/go-steem/rpc"
 	"github.com/go-steem/rpc/transports/websocket"
 	r "gopkg.in/dancannon/gorethink.v2"
+	"github.com/tidwall/gjson"
+	"github.com/cayleygraph/cayley"
+	"github.com/cayleygraph/cayley/graph"
+	"github.com/cayleygraph/cayley/quad"
 )
 
 const (
@@ -21,6 +25,7 @@ const (
 )
 
 var wg sync.WaitGroup
+
 
 func main() {
 
@@ -39,31 +44,20 @@ func main() {
 		fmt.Println("rethindb DB already made")
 	}
 
-	_, err = r.DB(rethinkdbname).TableCreate("transactions").RunWrite(Rsession)
+	_, err = r.DB(rethinkdbname).TableCreate("operations").RunWrite(Rsession)
 	if err != nil {
 		fmt.Println("Probably already made a table for transactions")
 
 	}
 
-	_, err = r.DB(rethinkdbname).TableCreate("flatblocks").RunWrite(Rsession)
-	if err != nil {
-		fmt.Println("Probably already made a table for flat blocks")
-
-	}
-
-	_, err = r.DB(rethinkdbname).TableCreate("operations").RunWrite(Rsession)
-	if err != nil {
-		fmt.Println("Probably already made a table for flat blocks")
-
-	}
 
 	// Process flags.
-	flagAddress := flag.String("rpc_endpoint", "ws://138.201.198.169:8090", "steemd RPC endpoint address")
+	flagAddress := flag.String("rpc_endpoint", "wss://steem.yt", "steemd RPC endpoint address")
 	flagReconnect := flag.Bool("reconnect", true, "enable auto-reconnect mode")
 	flag.Parse()
 
 	var (
-		url       = *flagAddress
+		url = *flagAddress
 		reconnect = *flagReconnect
 	)
 
@@ -97,7 +91,7 @@ func main() {
 	log.Printf("---> Dial(\"%v\")\n", url)
 	t, err := websocket.NewTransport(url,
 		websocket.SetAutoReconnectEnabled(reconnect),
-		websocket.SetAutoReconnectMaxDelay(30*time.Second),
+		websocket.SetAutoReconnectMaxDelay(30 * time.Second),
 		websocket.SetMonitor(monitorChan))
 	if err != nil {
 		fmt.Println(err)
@@ -123,51 +117,93 @@ func main() {
 		interrupted = true
 		client.Close()
 	}()
+	store, err := cayley.NewMemoryGraph()
 
 	if err := run(client, Rsession); err != nil {
 		log.Fatalln("Error:", err)
 	}
+
 }
 
-// Set the settings for the DB
-func run(client *rpc.Client, Rsession *r.Session) (err error) {
+
+// Run the application (opens channels, iterates through blockchains)
+func run(client *rpc.Client, Rsession *r.Session, store *cayley.QuadStore) (err error) {
 
 	// Keep processing incoming blocks forever.
 	fmt.Println("---> Entering the block processing loop")
 	for {
 		// Get current properties.
-		tasks := make(chan uint32, 1000)
+		tasks := make(chan uint32, 1000000)
+		donereading := make(chan string, 10000000)
+		rethinknum := make(chan uint32, 10000000)
+		rethinkwrite := make(chan string, 10000000)
+		cayleynum := make(chan uint32, 10000000)
+		cayleywrite := make(chan string, 10000000)
+		returnchannel := make(chan string, 10000000)
 
 		if err != nil {
 			return err
 		}
 		wg.Add(numberGoroutines)
 		for gr := 1; gr <= numberGoroutines; gr++ {
-			go Worker(tasks, gr, client, Rsession)
+			go Reader(tasks, gr, client, Rsession)
 		}
+		props, err := client.Database.GetDynamicGlobalProperties()
 
-		for U := uint32(1); U <= uint32(5000000); U++ {
+		for U := uint32(1); U <= uint32(props.LastIrreversibleBlockNum); U++ {
 			tasks <- U
+			rethinknum <- U
+			cayleynum <- U
+			opstrings := <-returnchannel
+			cayleywrite <- opstrings
+			rethinkwrite <- opstrings
+
 		}
-
-		return err
+			return err
+		}
 	}
-}
 
-func Worker(tasks chan uint32, gr int, client *rpc.Client, Rsession *r.Session) {
+
+
+
+func Reader(tasks chan uint32, gr int, client *rpc.Client,  returnchannel chan string) {
+
 	defer wg.Done()
+
 	for {
 
-		task, ok := <-tasks
-		if !ok {
-			fmt.Printf("worker: %d : Shutting Down\n", Worker)
-		}
-		fmt.Println(task)
-		fmt.Println(gr)
-		block, err := client.Database.GetBlock(task)
-		r.Table("transactions").
-			Insert(block.Transactions).
-			Exec(Rsession)
-		log.Fatal(err)
+	task := <-tasks
+
+	fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Pulled from STEEM API\n")
+	block, err := client.Database.GetBlockRaw(task)                                                        //returns json.RawMessage
+	blockstring := string(*block)                                                                        //this changes json.RawMessage into a string
+	operations := gjson.Get(blockstring, "result.transactions.operations")                                //now it is getting a string, because it doesn't accept json.rawmessage
+	strungagain := string(*operations)									//strungagain gets rid of the pointer and makes the return from gjson a proper string
+		returnchannel <- strungagain
+
 	}
+	}
+
+func Rethinkwrite(Rsession *r.Session) {
+		defer wg.Done()
+	for {
+		fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Written to Rethinkdb\n")
+		r.Table("operations").										//rethinkdb inserts.  Currently replaced with inserts for memdb.  need to be made into a bulk insert elsewhere in the code, preferrably a goroutine that eats from a buffered channel and passes that channel to a slice and then passes that slice to the db write.
+			Insert(operations).
+			Exec(Rsession)
+	}
+	}
+
+func Cayleywrite() {
+		defer wg.Done()
+	for {
+		fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Written to Cayley In RAM\n")
+
+	}
+
 }
+
+
+
+
+
