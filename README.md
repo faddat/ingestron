@@ -33,8 +33,7 @@ Eight-Threaded CPU (ex: Intel i7 or Xeon or Top-Class AMD.... OR POWER8)
 1GBPS Low-Latency Internet Connection
 SSD RAID or Optane Storage
 
-If you run it on less and contact us for support, we will laugh at you.  Actually if you contact us for support without
-cash in hand or code in brain, we'll probably laugh at you, too.  But maybe not.  We're pretty nice guys.
+If you run it on less and contact us for support, we will laugh at you.  Otherwise, you'll find us quite helpful!
 
 ### Installation:
 
