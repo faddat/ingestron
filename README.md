@@ -33,3 +33,15 @@ SSD RAID or Optane Storage
 If you run it on less and contact us for support, we will laugh at you.  Actually if you contact us for support without
 cash in hand or code in brain, we'll probably laugh at you, too.  But maybe not.  We're pretty nice guys.
 
+### Installation:
+
+go get github.com/faddat/ingestron
+
+
+### Environmental Expectations:
+* Rethinkdb at 127.0.0.1:28015
+* Bitshares at 127.0.0.1:8091
+* Steemd at 127.0.0.1::8090
+
+
+
