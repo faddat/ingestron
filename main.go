@@ -3,9 +3,13 @@ Ingestron is a golang-based ingestor for graphene-based blockchains.  Its develo
 BeyondBitcoin to advance the ecosystems of Bitshares, STEEM, Golos, and PeerPlays.  If you wish to see features added to
 INGESTRON, please contact Jacob Gadikian on Google Hangouts at faddat@gmail.com.  To put it simply, development is funded
 in cash-USD, and cash-USD causes features to happen.  Jacob is happy to accept cryptocurrencies and make payment arrangements.
-You can find a logic map for the block processing that INGESTRON does at:
+You can find a WIP logic map for the block processing that INGESTRON does at:
 
+https://docs.google.com/drawings/d/1iV7vcO0CZCYbiRWAjKN41axR6ZaeZ-OFD9YA39jFdoI/edit?usp=sharing
 
+Ingestron will serve an integrated status-panel WEB UI at port 6969, because why not?  Status information on all blockchains
+monitored by INGESTRON is written to RethinkDB with each block.  We'll be working to integrate tightly with the blockchain
+itself in coming releases, hopefully going as far as using cgo for actual integration.  
 
  */
 
