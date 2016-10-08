@@ -10,27 +10,29 @@ import (
 	"syscall"
 	"time"
 
-
-	"github.com/go-steem/rpc"
-	"github.com/go-steem/rpc/transports/websocket"
-	r "gopkg.in/dancannon/gorethink.v2"
-	"github.com/tidwall/gjson"
 	"github.com/cayleygraph/cayley"
 	"github.com/cayleygraph/cayley/graph"
 	"github.com/cayleygraph/cayley/quad"
+	"github.com/go-steem/rpc"
+	"github.com/go-steem/rpc/transports/websocket"
+	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/disk"
+	"github.com/shirou/gopsutil/mem"
+	"github.com/shirou/gopsutil/net"
+	"github.com/tidwall/gjson"
+	r "gopkg.in/dancannon/gorethink.v2"
 )
 
 const (
-	numberGoroutines = 8
+	numberGoroutines = 12
 )
 
 var wg sync.WaitGroup
 
-
 func main() {
 
 	Rsession, err := r.Connect(r.ConnectOpts{
-		Address: []string{"127.0.0.1:28015"},
+		Address: string{"127.0.0.1:28015"},
 	})
 	if err != nil {
 		log.Fatalln(err.Error())
@@ -49,15 +51,14 @@ func main() {
 		fmt.Println("Probably already made a table for transactions")
 
 	}
-
-
+	//from here to the end of the function there's just one LOC that isn't about connecting to the chain.  should go in a library.
 	// Process flags.
 	flagAddress := flag.String("rpc_endpoint", "ws://127.0.0.1:8090", "steemd RPC endpoint address")
 	flagReconnect := flag.Bool("reconnect", true, "enable auto-reconnect mode")
 	flag.Parse()
 
 	var (
-		url = *flagAddress
+		url       = *flagAddress
 		reconnect = *flagReconnect
 	)
 
@@ -91,7 +92,7 @@ func main() {
 	log.Printf("---> Dial(\"%v\")\n", url)
 	t, err := websocket.NewTransport(url,
 		websocket.SetAutoReconnectEnabled(reconnect),
-		websocket.SetAutoReconnectMaxDelay(30 * time.Second),
+		websocket.SetAutoReconnectMaxDelay(30*time.Second),
 		websocket.SetMonitor(monitorChan))
 	if err != nil {
 		fmt.Println(err)
@@ -119,12 +120,11 @@ func main() {
 	}()
 	store, err := cayley.NewMemoryGraph()
 
-	if err := run(client, Rsession); err != nil {
+	if err := run(client, Rsession, store); err != nil {
 		log.Fatalln("Error:", err)
 	}
 
 }
-
 
 // Run the application (opens channels, iterates through blockchains)
 func run(client *rpc.Client, Rsession *r.Session, store *cayley.QuadStore) (err error) {
@@ -147,7 +147,7 @@ func run(client *rpc.Client, Rsession *r.Session, store *cayley.QuadStore) (err 
 		}
 		wg.Add(numberGoroutines)
 		for gr := 1; gr <= numberGoroutines; gr++ {
-			go Reader(tasks, gr, client) (opstrings)
+			go Reader(tasks, gr, client)(opstrings)
 			go Rethinkwrite(Rsession, rethinknum)
 			go Cayleywrite(cayleynum, cayleywrite)
 		}
@@ -155,83 +155,85 @@ func run(client *rpc.Client, Rsession *r.Session, store *cayley.QuadStore) (err 
 
 		for U := uint32(1); U <= uint32(props.LastIrreversibleBlockNum); U++ {
 			tasks <- U
-			rethinknum <- U
-			cayleynum <- U
-			opstrings := <-returnchannel
-			cayleywrite <- opstrings
-			rethinkwrite <- opstrings
+			rethinknums <- U
+			cayleynums <- U
+			opstructs := <-returnchannel
+			cayleyops <- opstructs
+			rethinkops <- opstructs
 
 		}
-			return err
-		}
+		return err
 	}
+}
 
+type reputations map[int]string
+type votes map[int]string
+type op map[int]string
 
 type account struct {
-	name string `json:"name"`
-	created string `json:"created`
-	mined bool `json:"mined"`
-	post_count int `json:"post_count"`
-	sbd_balance string `json:"sbd_balance"`
-	witness_votes []string `json:"witness_votes"`
-	reputation map([int]string) `json:"reputation"`
-	last_post string `json:"last_post"`
-	voting_power int `json:"voting_power"`	
+	name          string      `json:"name"`
+	created       string      `json:"created`
+	mined         bool        `json:"mined"`
+	post_count    int         `json:"post_count"`
+	sbd_balance   string      `json:"sbd_balance"`
+	witness_votes []string    `json:"witness_votes"`
+	reputation    reputations `json:"reputation"`
+	last_post     string      `json:"last_post"`
+	voting_power  int         `json:"voting_power"`
 }
 
 type account_history struct {
-	votes map([int]string) `json:"result"`
-	trxid string `json:"trx_id"`
-	op map([int]string) `json:"op"`
-	voter string `json:"voter"`
-	author string `json:"author"`
-	permlink string `json:"permlink"`
-	weight string `json:"weight"`
-	timestamp string `json:"timestamp"`
+	votes     `json:"result"`
+	trxid     string         `json:"trx_id"`
+	op        map[int]string `json:"op"`
+	voter     string         `json:"voter"`
+	author    string         `json:"author"`
+	permlink  string         `json:"permlink"`
+	weight    string         `json:"weight"`
+	timestamp string         `json:"timestamp"`
 }
 
-type account
-
-func Reader(tasks chan uint32, gr int, client *rpc.Client,  returnchannel chan string) {
+func Reader(tasks chan uint32, gr int, client *rpc.Client, returnchannel chan string) {
 
 	defer wg.Done()
 
 	for {
 
-	task := <-tasks
+		task := <-tasks
 
-	fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Pulled from STEEM API\n")
-	acctcount, err := client.Database.GetAccountCountRaw()
-	block, err := client.Database.GetBlockRaw(task)                                                        //returns json.RawMessage
-	blockstring := string(*block)                                                                        //this changes json.RawMessage into a string
-	[]operations := gjson.Get(blockstring, "result.transactions#.operations")                                //now it is getting a string, because it doesn't accept json.rawmessage
-	[]accounts := gjson.Get(blockstring, "result.transactions#.operations#.1.new_account_name")
-	for _, account := range accounts {
-		var accountstruct account
-		var accountvotes account_votes
-		err := json.Unmarshal(client.Database.GetAccountVotesRaw(account) &account_votes)
-		err := json.Unmarshal(client.Database.GetAccountsRaw(account) &accountstruct)
-		
-				
-	}
-	strungagain := string(*operations)									//strungagain gets rid of the pointer and makes the return from gjson a proper string
+		fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Pulled from STEEM API\n")
+		acctcount, err := client.Database.GetAccountCountRaw()
+		block, err := client.Database.GetBlockRaw(task)                         //returns json.RawMessage
+		blockstring := string(*block)                                           //this changes json.RawMessage into a string
+		operations := gjson.Get(blockstring, "result.transactions#.operations") //now it is getting a string, because it doesn't accept json.rawmessage
+		accounts := gjson.Get(blockstring, "result.transactions#.operations#.1.new_account_name")
+		for _, account := range accounts {
+			var accountstruct account
+			var accountvotes account_votes
+			json.Unmarshal(client.Database.GetAccountVotesRaw(account) & account_votes)
+			json.Unmarshal(client.Database.GetAccountsRaw(account) & accountstruct)
+
+		}
+		strungagain := string(*operations) //strungagain gets rid of the pointer and makes the return from gjson a proper string
 		returnchannel <- strungagain
 
 	}
-	}
+}
 
 func Rethinkwrite(Rsession *r.Session) {
-		defer wg.Done()
+	defer wg.Done()
 	for {
+		cayleynum := <-cayleynums
+
 		fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Written to Rethinkdb\n")
-		r.Table("operations").										//rethinkdb inserts.  Currently replaced with inserts for memdb.  need to be made into a bulk insert elsewhere in the code, preferrably a goroutine that eats from a buffered channel and passes that channel to a slice and then passes that slice to the db write.
-			Insert(operations).
-			Exec(Rsession)
+		r.Table("operations"). //rethinkdb inserts.
+					Insert(operations).run(durability, "soft")
+		Exec(Rsession)
 	}
-	}
+}
 
 func Cayleywrite() {
-		defer wg.Done()
+	defer wg.Done()
 	for {
 		fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Written to Cayley In RAM\n")
 		t := cayley.NewTransaction()
@@ -241,12 +243,17 @@ func Cayleywrite() {
 		t.AddQuad(quad.Make("cats", "are", "scary", nil))
 		t.AddQuad(quad.Make("cats", "want to", "kill you", nil))
 
-
 	}
 
 }
 
+func monitoring() {
+	for {
+		time.Sleep(1000 * Millisecond)
+		cpu, _ := cpu.InfoStat()
+		netconnections, _ := net.ConnectionStat()
+		mem, _ := mem.memory_info()
+		disk, _ := disk.IOCounters()
+	}
 
-
-
-
+}
