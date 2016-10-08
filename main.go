@@ -139,14 +139,17 @@ func run(client *rpc.Client, Rsession *r.Session, store *cayley.QuadStore) (err 
 		rethinkwrite := make(chan string, 10000000)
 		cayleynum := make(chan uint32, 10000000)
 		cayleywrite := make(chan string, 10000000)
-		returnchannel := make(chan string, 10000000)
+		blockreturn := make(chan string, 10000000)
+		accountreturn := make(chan string, 10000000)
 
 		if err != nil {
 			return err
 		}
 		wg.Add(numberGoroutines)
 		for gr := 1; gr <= numberGoroutines; gr++ {
-			go Reader(tasks, gr, client, Rsession)
+			go Reader(tasks, gr, client) (opstrings)
+			go Rethinkwrite(Rsession, rethinknum)
+			go Cayleywrite(cayleynum, cayleywrite)
 		}
 		props, err := client.Database.GetDynamicGlobalProperties()
 
@@ -164,7 +167,30 @@ func run(client *rpc.Client, Rsession *r.Session, store *cayley.QuadStore) (err 
 	}
 
 
+type account struct {
+	name string `json:"name"`
+	created string `json:"created`
+	mined bool `json:"mined"`
+	post_count int `json:"post_count"`
+	sbd_balance string `json:"sbd_balance"`
+	witness_votes []string `json:"witness_votes"`
+	reputation map([int]string) `json:"reputation"`
+	last_post string `json:"last_post"`
+	voting_power int `json:"voting_power"`	
+}
 
+type account_history struct {
+	votes map([int]string) `json:"result"`
+	trxid string `json:"trx_id"`
+	op map([int]string) `json:"op"`
+	voter string `json:"voter"`
+	author string `json:"author"`
+	permlink string `json:"permlink"`
+	weight string `json:"weight"`
+	timestamp string `json:"timestamp"`
+}
+
+type account
 
 func Reader(tasks chan uint32, gr int, client *rpc.Client,  returnchannel chan string) {
 
@@ -175,9 +201,19 @@ func Reader(tasks chan uint32, gr int, client *rpc.Client,  returnchannel chan s
 	task := <-tasks
 
 	fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Pulled from STEEM API\n")
+	acctcount, err := client.Database.GetAccountCountRaw()
 	block, err := client.Database.GetBlockRaw(task)                                                        //returns json.RawMessage
 	blockstring := string(*block)                                                                        //this changes json.RawMessage into a string
-	operations := gjson.Get(blockstring, "result.transactions.operations")                                //now it is getting a string, because it doesn't accept json.rawmessage
+	[]operations := gjson.Get(blockstring, "result.transactions#.operations")                                //now it is getting a string, because it doesn't accept json.rawmessage
+	[]accounts := gjson.Get(blockstring, "result.transactions#.operations#.1.new_account_name")
+	for _, account := range accounts {
+		var accountstruct account
+		var accountvotes account_votes
+		err := json.Unmarshal(client.Database.GetAccountVotesRaw(account) &account_votes)
+		err := json.Unmarshal(client.Database.GetAccountsRaw(account) &accountstruct)
+		
+				
+	}
 	strungagain := string(*operations)									//strungagain gets rid of the pointer and makes the return from gjson a proper string
 		returnchannel <- strungagain
 
@@ -198,6 +234,13 @@ func Cayleywrite() {
 		defer wg.Done()
 	for {
 		fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Written to Cayley In RAM\n")
+		t := cayley.NewTransaction()
+		t.AddQuad(quad.Make("food", "is", "good", nil))
+		t.AddQuad(quad.Make("phrase of the day", "is of course", "Hello World!", nil))
+		t.AddQuad(quad.Make("cats", "are", "awesome", nil))
+		t.AddQuad(quad.Make("cats", "are", "scary", nil))
+		t.AddQuad(quad.Make("cats", "want to", "kill you", nil))
+
 
 	}
 
