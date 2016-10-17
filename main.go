@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/cayleygraph/cayley"
 	"github.com/cayleygraph/cayley/quad"
+	"github.com/faddat/steemconnect"
 	"github.com/go-steem/rpc"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/disk"
@@ -44,7 +46,13 @@ func main() {
 	if err != nil {
 		fmt.Println("Probably already made a table for transactions")
 	}
-	client := steemconnect()
+
+	_, err = r.DB(rethinkdbname).TableCreate("accounts").RunWrite(Rsession)
+	if err != nil {
+		fmt.Println("Probably already made a table for transactions")
+	}
+
+	client := steemconnect.Steemconnect()
 	store, err := cayley.NewMemoryGraph()
 
 	if err := run(client, Rsession, store); err != nil {
@@ -61,13 +69,15 @@ func run(client *rpc.Client, Rsession *r.Session, store cayley.QuadStore) (err e
 	for {
 		// Get current properties.
 
-		tasks := make(chan uint32, 1000000)
-		donereading := make(chan string, 10000000)
-		nums := make(chan uint32, 10000000)
-		writes := make(chan string, 10000000)
-		Blockreturn := make(chan string, 10000000)
-		Accountreturn := make(chan account, 10000000)
-		Votereturn := make(chan voteHistory, 1000000)
+		tasks := make(chan uint32, 100000)
+		donereading := make(chan string, 1000000)
+		nums := make(chan uint32, 1000000)
+		writes := make(chan string, 1000000)
+		blockchan := make(chan string, 1000000)
+		accountchan := make(chan account, 1000000)
+		accounthistorychan := make(chan accountHistory, 1000000)
+		votechan := make(chan voteHistory, 1000000)
+		newaccount := make(chan string, 1000000)
 
 		if err != nil {
 			return err
@@ -75,9 +85,10 @@ func run(client *rpc.Client, Rsession *r.Session, store cayley.QuadStore) (err e
 
 		wg.Add(numberGoroutines)
 		for gr := 1; gr <= numberGoroutines; gr++ {
-			go Reader(tasks, gr, client)
+			go Reader(tasks, newaccount, accountchan, accounthistorychan, votechan, blockchan, gr, client)
 			go Blockwrite(Rsession, store, nums, writes)
-			go Accountwrite(cayleywrites, cayleynums)
+			go Votewrite(Rsession, Accountchan, Votechan)
+			go Accountwrite(Rsession, votechan)
 		}
 		props, err := client.Database.GetDynamicGlobalProperties()
 
@@ -124,7 +135,7 @@ type voteHistory struct {
 }
 
 //Reader is responsible for gathering data
-func Reader(tasks chan uint32, gr int, client *rpc.Client) {
+func Reader(tasks chan uint32, newaccount chan string, accountchan chan account, accounthistorychan chan accountHistory, votechan chan voteHistory, blockchan chan string, gr int, client *rpc.Client) {
 
 	defer wg.Done()
 
@@ -135,19 +146,32 @@ func Reader(tasks chan uint32, gr int, client *rpc.Client) {
 		block, err := client.Database.GetBlockRaw(task)                         //returns json.RawMessage
 		blockstring := string(*block)                                           //this changes json.RawMessage into a string
 		operations := gjson.Get(blockstring, "result.transactions#.operations") //now it is getting a string, because it doesn't accept json.rawmessage
-		accounts := gjson.Get(blockstring, "result.transactions#.operations#.#.new_account_name#")
-		for _, newaccountname := range accounts.Array() {
-			var accountstruct account
-			var voteHistory voteHistory
-			accountinquestion := newaccountname.String()
-			accounthistoryraw, err := client.Database.GetAccountHistoryRaw(accountinquestion, uint64(2000), uint32(1999))
-			votesraw, err := client.Database.GetAccountVotesRaw(accountinquestion)
-			accountreturn <- newaccountname
-
+		accounts := gjson.Get(blockstring, "result.transactions#.operations#.#.new_account_name")
+		accountnum := gjson.Get(blockstring, "result.transactions#.operations#.#.new_account_name.#")
+		accountnumint := accountnum.Int()
+		if accountnumint != 0 {
+			fmt.Print("goroutine: ", gr, "no new accounts in block number: ", int(task), "Written to Rethinkdb\n")
+			for _, newaccountname := range accounts.Array() {
+				var err error
+				var accountstruct account
+				var acctvotes voteHistory
+				var accountHistoryStruct accountHistory
+				var accountslice []string
+				accountinquestion := newaccountname.String()
+				accounthistoryraw, err := client.Database.GetAccountHistoryRaw(accountinquestion, uint64(2000), uint32(1999))
+				votesraw, err := client.Database.GetAccountVotesRaw(accountinquestion)
+				accountslice[1] = accountinquestion
+				accountraw, err := client.Database.GetAccountsRaw(accountslice)
+				json.Unmarshal(*accounthistoryraw, accountHistoryStruct)
+				json.Unmarshal(*votesraw, acctvotes)
+				json.Unmarshal(*accountraw, accountstruct)
+				newaccount <- accountinquestion
+				votechan <- acctvotes
+				accountchan <- accountstruct
+			}
 		}
-		strungagain := string(*operations) //strungagain gets rid of the pointer and makes the return from gjson a proper string
-		blockreturn <- strungagain
-
+		nums <- task
+		writes <- operations.String()
 	}
 }
 
@@ -155,9 +179,8 @@ func Reader(tasks chan uint32, gr int, client *rpc.Client) {
 func Blockwrite(Rsession *r.Session, store cayley.QuadStore, nums chan uint32, writes chan string) {
 	defer wg.Done()
 	for {
-		rethinknum := <-rethinknums
-		rethinkwrite := <-rethinkwrites
-		rethink
+		num := <-nums
+		write := <-writes
 
 		fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Written to Rethinkdb\n")
 		r.Table("operations"). //rethinkdb inserts.
@@ -170,12 +193,29 @@ func Blockwrite(Rsession *r.Session, store cayley.QuadStore, nums chan uint32, w
 }
 
 //Accountwrite writes accounts and votes.  Changed from cayleywrite because some blocks have no new accounts and some blocks have several.
-func Accountwrite(store cayley.QuadStore, accountreturn chan account, votereturn chan voteHistory) {
+func Accountwrite(Rsession *r.Session, newaccount chan string) {
 
 	defer wg.Done()
 	for {
-		cayleywrite := <-cayleywrites
-		cayleynum := <-cayleynums
+		account := <-newaccount
+		r.Table("accounts"). //rethinkdb inserts.
+					Insert(account).run(durability, "soft")
+		Exec(Rsession)
+
+	}
+
+}
+
+//Votewrite writes a single user's votes to a rethinkdb table.
+func Votewrite(Rsession *r.Session, votechan chan voteHistory, newaccount chan string) {
+
+	defer wg.Done()
+	for {
+		vote := <-votechan
+		account := <-newaccount
+		_, err = r.DB(rethinkdbname).TableCreate(account).RunWrite(Rsession)
+		r.Table(account).
+			Insert(vote).run(durability, "soft")
 
 	}
 
