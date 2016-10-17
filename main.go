@@ -43,9 +43,8 @@ func main() {
 	_, err = r.DB(rethinkdbname).TableCreate("operations").RunWrite(Rsession)
 	if err != nil {
 		fmt.Println("Probably already made a table for transactions")
-
 	}
-
+	client := steemconnect()
 	store, err := cayley.NewMemoryGraph()
 
 	if err := run(client, Rsession, store); err != nil {
