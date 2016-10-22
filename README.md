@@ -19,22 +19,7 @@ itself in coming releases, hopefully going as far as using cgo for actual integr
 
 INGESTRON is a little like an old-school computer game:
 
-## MINIMUM SYSTEM REQUIREMENTS
-Eight-Threaded CPU (ex: Intel i7 or Xeon or Top-Class AMD.... OR POWER8)
-64 GB RAM
-35MBPS Low-Latency Internet Connection
-100 GB Free Disk Space
-
-## RECOMMENDED SYSTEM REQUIREMENTS(Our Development Setup)
-12-Thread CPU (Xeon e5 Class)
-128 GB RAM
-1GBPS Low-Latency Internet Connection
-SSD RAID or Optane Storage
-
-If you run it on less and contact us for support, we will laugh at you.  Otherwise, you'll find us quite helpful!
-
-### Installation:
-
+### Get Started by:  (I'm moving the development work to a devel branch and putting up an old ingestron for now.  Please know that there is much more ingestron to come.  
 go get github.com/faddat/ingestron
 
 
