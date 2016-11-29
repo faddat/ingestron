@@ -1,234 +1,148 @@
 package main
 
 import (
-	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
-	"sync"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"github.com/cayleygraph/cayley"
-	"github.com/cayleygraph/cayley/quad"
-	"github.com/faddat/steemconnect"
+	"github.com/asdine/storm"
 	"github.com/go-steem/rpc"
-	"github.com/shirou/gopsutil/cpu"
-	"github.com/shirou/gopsutil/disk"
-	"github.com/shirou/gopsutil/mem"
-	"github.com/shirou/gopsutil/net"
-	"github.com/tidwall/gjson"
-	r "gopkg.in/dancannon/gorethink.v2"
+	"github.com/go-steem/rpc/transports/websocket"
+	"github.com/go-steem/rpc/types"
 )
-
-const (
-	numberGoroutines = 12
-)
-
-var wg sync.WaitGroup
 
 func main() {
-
-	Rsession, err := r.Connect(r.ConnectOpts{
-		Address: "127.0.0.1:28015",
-	})
-	if err != nil {
-		log.Fatalln(err.Error())
-	}
-
-	// Create a table in the DB
-	var rethinkdbname = "steemit69"
-	_, err = r.DBCreate(rethinkdbname).RunWrite(Rsession)
-	Rsession.Use(rethinkdbname)
-	if err != nil {
-		fmt.Println("rethindb DB already made")
-	}
-
-	_, err = r.DB(rethinkdbname).TableCreate("operations").RunWrite(Rsession)
-	if err != nil {
-		fmt.Println("Probably already made a table for transactions")
-	}
-
-	_, err = r.DB(rethinkdbname).TableCreate("accounts").RunWrite(Rsession)
-	if err != nil {
-		fmt.Println("Probably already made a table for transactions")
-	}
-
-	client := steemconnect.Steemconnect()
-	store, err := cayley.NewMemoryGraph()
-
-	if err := run(client, Rsession, store); err != nil {
+	if err := run(); err != nil {
 		log.Fatalln("Error:", err)
 	}
-
 }
 
-// Run the application (opens channels, iterates through blockchains)
-func run(client *rpc.Client, Rsession *r.Session, store cayley.QuadStore) (err error) {
+func run() (err error) {
+	// Process flags.
+	flagAddress := flag.String("rpc_endpoint", "ws://localhost:8090", "steemd RPC endpoint address")
+	flagReconnect := flag.Bool("reconnect", false, "enable auto-reconnect mode")
+	flag.Parse()
+
+	var (
+		url       = *flagAddress
+		reconnect = *flagReconnect
+	)
+
+	// Start catching signals.
+	var interrupted bool
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
+
+	// Drop the error in case it is a request being interrupted.
+	defer func() {
+		if err == websocket.ErrClosing && interrupted {
+			err = nil
+		}
+	}()
+
+	// Start the connection monitor.
+	monitorChan := make(chan interface{}, 1)
+	if reconnect {
+		go func() {
+			for {
+				event, ok := <-monitorChan
+				if ok {
+					log.Println(event)
+				}
+			}
+		}()
+	}
+
+	// Instantiate the WebSocket transport.
+	log.Printf("---> Dial(\"%v\")\n", url)
+	t, err := websocket.NewTransport(url,
+		websocket.SetAutoReconnectEnabled(reconnect),
+		websocket.SetAutoReconnectMaxDelay(30*time.Second),
+		websocket.SetMonitor(monitorChan))
+	if err != nil {
+		return err
+	}
+
+	// Use the transport to get an RPC client.
+	client, err := rpc.NewClient(t)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if !interrupted {
+			client.Close()
+		}
+	}()
+
+	// Start processing signals.
+	go func() {
+		<-signalCh
+		fmt.Println()
+		log.Println("Signal received, exiting...")
+		signal.Stop(signalCh)
+		interrupted = true
+		client.Close()
+	}()
+
+	// Get config.
+	log.Println("---> GetConfig()")
+	config, err := client.Database.GetConfig()
+	if err != nil {
+		return err
+	}
+
+	// Use the last irreversible block number as the initial last block number.
+	props, err := client.Database.GetDynamicGlobalProperties()
+	if err != nil {
+		return err
+	}
+	lastBlock := props.LastIrreversibleBlockNum
+
+	db, err := storm.Open("my.db", storm.Batch())
+	defer db.Close()
 
 	// Keep processing incoming blocks forever.
-	fmt.Println("---> Entering the block processing loop")
+	log.Printf("---> Entering the block processing loop (last block = %v)\n", lastBlock)
 	for {
 		// Get current properties.
-
-		tasks := make(chan uint32, 100000)
-		donereading := make(chan string, 1000000)
-		nums := make(chan uint32, 1000000)
-		writes := make(chan string, 1000000)
-		blockchan := make(chan string, 1000000)
-		accountchan := make(chan account, 1000000)
-		accounthistorychan := make(chan accountHistory, 1000000)
-		votechan := make(chan voteHistory, 1000000)
-		newaccount := make(chan string, 1000000)
-
+		props, err := client.Database.GetDynamicGlobalProperties()
 		if err != nil {
 			return err
 		}
 
-		wg.Add(numberGoroutines)
-		for gr := 1; gr <= numberGoroutines; gr++ {
-			go Reader(tasks, newaccount, accountchan, accounthistorychan, votechan, blockchan, gr, client)
-			go Blockwrite(Rsession, store, nums, writes)
-			go Votewrite(Rsession, Accountchan, Votechan)
-			go Accountwrite(Rsession, votechan)
-		}
-		props, err := client.Database.GetDynamicGlobalProperties()
-
-		for U := uint32(1); U <= uint32(props.LastIrreversibleBlockNum); U++ {
-			tasks <- U
-			rethinknums <- U
-			cayleynums <- U
-		}
-		return err
-	}
-}
-
-type account struct {
-	Name         string         `json:"name"`
-	Created      string         `json:"created"`
-	Mined        bool           `json:"mined"`
-	PostCount    int            `json:"post_count"`
-	SbdBalance   string         `json:"sbd_balance"`
-	WitnessVotes []string       `json:"witness_votes"`
-	Reputation   map[int]string `json:"reputation"`
-	LastPost     string         `json:"last_post"`
-	VotingPower  int            `json:"voting_power"`
-}
-
-type accountHistory struct {
-	Trxid     string         `json:"trx_id"`
-	Op        map[int]string `json:"op"`
-	Voter     string         `json:"voter"`
-	Author    string         `json:"author"`
-	Permlink  string         `json:"permlink"`
-	Weight    string         `json:"weight"`
-	Timestamp string         `json:"timestamp"`
-}
-
-type voteHistory struct {
-	ID     int `json:"id"`
-	Result []struct {
-		Authorperm string `json:"authorperm"`
-		Weight     int    `json:"weight"`
-		Rshares    string `json:"rshares"`
-		Percent    int    `json:"percent"`
-		Time       string `json:"time"`
-	} `json:"result"`
-}
-
-//Reader is responsible for gathering data
-func Reader(tasks chan uint32, newaccount chan string, accountchan chan account, accounthistorychan chan accountHistory, votechan chan voteHistory, blockchan chan string, gr int, client *rpc.Client) {
-
-	defer wg.Done()
-
-	for {
-
-		task := <-tasks
-		fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Pulled from STEEM API\n")
-		block, err := client.Database.GetBlockRaw(task)                         //returns json.RawMessage
-		blockstring := string(*block)                                           //this changes json.RawMessage into a string
-		operations := gjson.Get(blockstring, "result.transactions#.operations") //now it is getting a string, because it doesn't accept json.rawmessage
-		accounts := gjson.Get(blockstring, "result.transactions#.operations#.#.new_account_name")
-		accountnum := gjson.Get(blockstring, "result.transactions#.operations#.#.new_account_name.#")
-		accountnumint := accountnum.Int()
-		if accountnumint != 0 {
-			fmt.Print("goroutine: ", gr, "no new accounts in block number: ", int(task), "Written to Rethinkdb\n")
-			for _, newaccountname := range accounts.Array() {
-				var err error
-				var accountstruct account
-				var acctvotes voteHistory
-				var accountHistoryStruct accountHistory
-				var accountslice []string
-				accountinquestion := newaccountname.String()
-				accounthistoryraw, err := client.Database.GetAccountHistoryRaw(accountinquestion, uint64(2000), uint32(1999))
-				votesraw, err := client.Database.GetAccountVotesRaw(accountinquestion)
-				accountslice[1] = accountinquestion
-				accountraw, err := client.Database.GetAccountsRaw(accountslice)
-				json.Unmarshal(*accounthistoryraw, accountHistoryStruct)
-				json.Unmarshal(*votesraw, acctvotes)
-				json.Unmarshal(*accountraw, accountstruct)
-				newaccount <- accountinquestion
-				votechan <- acctvotes
-				accountchan <- accountstruct
+		// Process new blocks.
+		for props.LastIrreversibleBlockNum-lastBlock > 0 {
+			block, err := client.Database.GetBlock(lastBlock)
+			if err != nil {
+				return err
 			}
+
+			// Process the transactions.
+			for _, tx := range block.Transactions {
+				for _, operation := range tx.Operations {
+					switch op := operation.Data().(type) {
+					case *types.VoteOperation:
+						fmt.Printf("@%v voted for @%v/%v\n", op.Voter, op.Author, op.Permlink)
+						err := db.Save(&op)
+						if err != nil {
+							return err
+						}
+
+						// You can add more cases here, it depends on
+						// what operations you actually need to process.
+
+					}
+				}
+			}
+
+			lastBlock++
 		}
-		nums <- task
-		writes <- operations.String()
+
+		// Sleep for STEEMIT_BLOCK_INTERVAL seconds before the next iteration.
+		time.Sleep(time.Duration(config.SteemitBlockInterval) * time.Second)
 	}
-}
-
-//Blockwrite writes block data to rethinkdb and cayley.
-func Blockwrite(Rsession *r.Session, store cayley.QuadStore, nums chan uint32, writes chan string) {
-	defer wg.Done()
-	for {
-		num := <-nums
-		write := <-writes
-
-		fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Written to Rethinkdb\n")
-		r.Table("operations"). //rethinkdb inserts.
-					Insert(operations).run(durability, "soft")
-		Exec(Rsession)
-		fmt.Print("goroutine: ", gr, "     		block number: ", int(task), "Written to Cayley In RAM\n")
-		t := cayley.NewTransaction()
-		t.AddQuad(quad.Make("food", "is", "good", nil))
-	}
-}
-
-//Accountwrite writes accounts and votes.  Changed from cayleywrite because some blocks have no new accounts and some blocks have several.
-func Accountwrite(Rsession *r.Session, newaccount chan string) {
-
-	defer wg.Done()
-	for {
-		account := <-newaccount
-		r.Table("accounts"). //rethinkdb inserts.
-					Insert(account).run(durability, "soft")
-		Exec(Rsession)
-
-	}
-
-}
-
-//Votewrite writes a single user's votes to a rethinkdb table.
-func Votewrite(Rsession *r.Session, votechan chan voteHistory, newaccount chan string) {
-
-	defer wg.Done()
-	for {
-		vote := <-votechan
-		account := <-newaccount
-		_, err = r.DB(rethinkdbname).TableCreate(account).RunWrite(Rsession)
-		r.Table(account).
-			Insert(vote).run(durability, "soft")
-
-	}
-
-}
-
-func monitoring() {
-	defer wg.Done()
-	for {
-		time.Sleep(1000 * Millisecond)
-		cpu, _ := cpu.InfoStat()
-		netconnections, _ := net.ConnectionStat()
-		Mem, _ := mem.memoryInfo()
-		disk, _ := disk.IOCounters()
-	}
-
 }
