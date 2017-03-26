@@ -113,9 +113,9 @@ func run() (err error) {
 		if err != nil {
 			return err
 		}
-
+		startBlock := 1
 		// Process new blocks.
-		for props.LastIrreversibleBlockNum-lastBlock > 0 {
+		for startBlock > props.LastIrreversibleBlockNum-lastBlock {
 			block, err := client.Database.GetBlock(lastBlock)
 			if err != nil {
 				return err
