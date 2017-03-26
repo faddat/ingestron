@@ -115,8 +115,8 @@ func run() (err error) {
 		}
 		startBlock := 1
 		// Process new blocks.
-		for startBlock > props.LastIrreversibleBlockNum-lastBlock {
-			block, err := client.Database.GetBlock(lastBlock)
+		for startBlock < props.LastIrreversibleBlockNum-lastBlock {
+			block, err := client.Database.GetBlock(startBlock)
 			if err != nil {
 				return err
 			}
@@ -131,6 +131,8 @@ func run() (err error) {
 						if err != nil {
 							return err
 						}
+					case *types.PostOperation:
+						fmt.Printf(op.
 
 						// You can add more cases here, it depends on
 						// what operations you actually need to process.
@@ -139,7 +141,7 @@ func run() (err error) {
 				}
 			}
 
-			lastBlock++
+			startBlock++
 		}
 
 		// Sleep for STEEMIT_BLOCK_INTERVAL seconds before the next iteration.
