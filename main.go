@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/asdine/storm"
-	"github.com/go-steem/rpc"
-	"github.com/go-steem/rpc/transports/websocket"
-	"github.com/go-steem/rpc/types"
+	"github.com/baabeetaa/rpc"
+	"github.com/baabeetaa/rpc/transports/websocket"
+	"github.com/baabeetaa/rpc/types"
 )
 
 func main() {
