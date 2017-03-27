@@ -13,6 +13,7 @@ import (
 	"github.com/baabeetaa/rpc"
 	"github.com/baabeetaa/rpc/transports/websocket"
 	"github.com/baabeetaa/rpc/types"
+	"github.com/cstockton/go-conv"
 )
 
 func main() {
@@ -23,7 +24,7 @@ func main() {
 
 func run() (err error) {
 	// Process flags.
-	flagAddress := flag.String("rpc_endpoint", "ws://localhost:8090", "steemd RPC endpoint address")
+	flagAddress := flag.String("rpc_endpoint", "ws://127.0.0.1:8090", "steemd RPC endpoint address")
 	flagReconnect := flag.Bool("reconnect", false, "enable auto-reconnect mode")
 	flag.Parse()
 
@@ -94,54 +95,89 @@ func run() (err error) {
 	if err != nil {
 		return err
 	}
-
-	// Use the last irreversible block number as the initial last block number.
-	props, err := client.Database.GetDynamicGlobalProperties()
-	if err != nil {
-		return err
-	}
-	lastBlock := props.LastIrreversibleBlockNum
-
+	//Open Storm
 	db, err := storm.Open("my.db", storm.Batch())
 	defer db.Close()
+	//start at block 1
+	StartBlock := uint32(1)
 
 	// Keep processing incoming blocks forever.
-	log.Printf("---> Entering the block processing loop (last block = %v)\n", lastBlock)
+	log.Printf("---> Entering the block processing loop (last block = %v)\n", StartBlock)
 	for {
 		// Get current properties.
 		props, err := client.Database.GetDynamicGlobalProperties()
 		if err != nil {
 			return err
 		}
-		startBlock := 1
+		lastBlock := props.LastIrreversibleBlockNum
+
 		// Process new blocks.
-		for startBlock < props.LastIrreversibleBlockNum-lastBlock {
-			block, err := client.Database.GetBlock(startBlock)
+		for StartBlock < lastBlock {
+			block, err := client.Database.GetBlock(StartBlock)
 			if err != nil {
 				return err
 			}
+			fmt.Println(conv.Uint(StartBlock))
 
 			// Process the transactions.
 			for _, tx := range block.Transactions {
 				for _, operation := range tx.Operations {
 					switch op := operation.Data().(type) {
+					//process votes
 					case *types.VoteOperation:
 						fmt.Printf("@%v voted for @%v/%v\n", op.Voter, op.Author, op.Permlink)
 						err := db.Save(&op)
 						if err != nil {
 							return err
 						}
-					case *types.PostOperation:
-						fmt.Printf(op.
-
+					//process account creations
+					case *types.AccountCreateOperation:
+						fmt.Printf("@%v created @v/%v/%v/%v/%v/%v/%v/%v\n", op.Creator, op.Active, op.Fee, op.JsonMetadata, op.MemoKey, op.NewAccountName, op.Owner, op.Posting)
 						// You can add more cases here, it depends on
 						// what operations you actually need to process.
-
+						err := db.Save(&op)
+						if err != nil {
+							return err
+						}
+					//process witness votes
+					case *types.AccountWitnessVoteOperation:
+						fmt.Printf(op.Account, op.Approve, op.Witness)
+						err := db.Save(&op)
+						if err != nil {
+							return err
+						}
+					//process account updates
+					case *types.AccountUpdateOperation:
+						err := db.Save(&op)
+						if err != nil {
+							return err
+						}
+					//process posts and comments
+					case *types.CommentOperation:
+						err := db.Save(&op)
+						if err != nil {
+							return err
+						}
+					//process follows
+					case *types.FollowOperation:
+						err := db.Save(&op)
+						if err != nil {
+							return err
+						}
+					case *types.CommentOptionsOperation:
+						err := db.Save(&op)
+						if err != nil {
+							return err
+						}
+					case *types.WithdrawVestingOperation:
+						err := db.Save(&op)
+						if err != nil {
+							return err
+						}
 					}
 				}
 			}
-
-			startBlock++
+			StartBlock++
 		}
 
 		// Sleep for STEEMIT_BLOCK_INTERVAL seconds before the next iteration.
