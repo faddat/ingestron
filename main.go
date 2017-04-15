@@ -126,51 +126,57 @@ func run() (err error) {
 					//process votes
 					case *types.VoteOperation:
 						fmt.Printf("@%v voted for @%v/%v\n", op.Voter, op.Author, op.Permlink)
-						err := db.Save(&op)
+						vote := op
+						err := db.Save(&vote)
 						if err != nil {
 							return err
 						}
 					//process account creations
 					case *types.AccountCreateOperation:
-						fmt.Printf("@%v created @v/%v/%v/%v/%v/%v/%v/%v\n", op.Creator, op.Active, op.Fee, op.JsonMetadata, op.MemoKey, op.NewAccountName, op.Owner, op.Posting)
-						// You can add more cases here, it depends on
-						// what operations you actually need to process.
-						err := db.Save(&op)
+						accountCreate := op
+						fmt.Printf("@%v created @v/%v/%v/%v/%v/%v/%v/%v\n", accountCreate.Creator, accountCreate.Active, accountCreate.Fee, accountCreate.JsonMetadata, accountCreate.MemoKey, accountCreate.NewAccountName, accountCreate.Owner, accountCreate.Posting)
+						err := db.Save(&accountCreate)
 						if err != nil {
 							return err
 						}
 					//process witness votes
 					case *types.AccountWitnessVoteOperation:
-						fmt.Printf(op.Account, op.Approve, op.Witness)
-						err := db.Save(&op)
+						witnessVote := op
+						fmt.Printf(witnessVote.Account, witnessVote.Approve, witnessVote.Witness)
+						err := db.Save(&witnessVote)
 						if err != nil {
 							return err
 						}
 					//process account updates
 					case *types.AccountUpdateOperation:
-						err := db.Save(&op)
+						accountUpdate := op
+						err := db.Save(&accountUpdate)
 						if err != nil {
 							return err
 						}
 					//process posts and comments
 					case *types.CommentOperation:
-						err := db.Save(&op)
+						commentOperation := op
+						err := db.Save(&commentOperation)
 						if err != nil {
 							return err
 						}
 					//process follows
 					case *types.FollowOperation:
-						err := db.Save(&op)
+						followOperation := op
+						err := db.Save(&followOperation)
 						if err != nil {
 							return err
 						}
 					case *types.CommentOptionsOperation:
-						err := db.Save(&op)
+						commentOptions := op
+						err := db.Save(&commentOptions)
 						if err != nil {
 							return err
 						}
 					case *types.WithdrawVestingOperation:
-						err := db.Save(&op)
+						withdrawVesting := op
+						err := db.Save(&withdrawVesting)
 						if err != nil {
 							return err
 						}
